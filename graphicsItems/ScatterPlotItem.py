@@ -465,15 +465,15 @@ class ScatterPlotItem(GraphicsObject):
             self._spotPixmap = SpotPixmap(self.opts['pxMode'], self.opts['size'],
                                           self.opts['pen'], self.opts['brush'],
                                           self.opts['symbol'])
-        return self._spotPixmap
+        return self._spotPixmap.clone()
 
     def mkSpot(self, pos, size, pxMode, brush, pen, data, symbol=None, index=None):
         ## Make and return a SpotItem (or PixmapSpotItem if in pxMode)
         brush = fn.mkBrush(brush)
         pen = fn.mkPen(pen)
         spotPixmap = None
-        if pxMode:
-            spotPixmap = self.spotPixmap()  ## returns None if not using identical mode
+#        if pxMode:
+#            spotPixmap = self.spotPixmap()  ## returns None if not using identical mode
         if spotPixmap is None:
             spotPixmap = SpotPixmap(pxMode, size, pen, brush, symbol)
         item = SpotItem(spotPixmap, data, index=index)
@@ -572,15 +572,14 @@ class ScatterPlotItem(GraphicsObject):
         else:
             ev.ignore()
 
-class SpotPixmap(object):
+class SpotPixmap(QtGui.QGraphicsPixmapItem):
     """
     Stores graphics data for SpotItem.
 
     It is an anonymous SpotItem which can be duplicated and reused for all
     spots.
     """
-    _path = None
-    _pixmap = None
+    _shape = None # outer boundary including pen width
     _pxMode = None
     _size = None
     _pen = None
@@ -614,14 +613,6 @@ class SpotPixmap(object):
         return cls._symbols[symbol]
 
     @property
-    def path(self):
-        return self._path
-
-    @property
-    def pixmap(self):
-        return self._pixmap
-
-    @property
     def pxMode(self):
         return self._pxMode
 
@@ -629,30 +620,23 @@ class SpotPixmap(object):
     def size(self):
         return self._size
 
-    @property
-    def pen(self):
-        return self._pen
-
-    @pen.setter
-    def pen(self, pen):
-        self._pen = fn.mkPen(pen)
-
-    @property
-    def brush(self):
-        return self._brush
-
-    @brush.setter
-    def brush(self, brush):
-        self._brush = fn.mkBrush(brush)
-
-    def __init__(self, pxMode, size, pen, brush, symbol):
+    def __init__(self, pxMode, size, pen, brush, symbol = None):
+        QtGui.QGraphicsPixmapItem.__init__(self)
+#        self.setShapeMode(self.HeuristicMaskShape)
+        self.setShapeMode(self.BoundingRectShape)
+#        self.setShapeMode(self.MaskShape)
+        self.setFlags(self.flags() | self.ItemIgnoresTransformations)
         self._pxMode = pxMode
         self._size = size
-        self.pen = pen
-        self.brush = brush
-        self._setSymbol(symbol)
+        self._pen = pen
+        self._brush = brush
+        self.setPos(-self._size*.5, -self._size*.5) # center the pixmap
+        if symbol is not None:
+            self._setSymbol(symbol)
 
     def _setSymbol(self, symbol):
+        """Sets the spot symbol and forces rebuilding the QPainterPath and
+        the pixmap if in pxMode."""
         try:
             symbol = int(symbol)
         except: 
@@ -664,31 +648,65 @@ class SpotPixmap(object):
         # create a new path too if the symbol changed
         if self._symbol != symbol:
             self._symbol = symbol
-            self._setPath(self._symbol)
+            self._setShape(self._symbol)
 
-    def paint(self, painter, *opts):
-        painter.setPen(self.pen)
-        painter.setBrush(self.brush)
-        painter.drawPath(self.path)
+    def _setShape(self, symbol):
+        self._shape = self.symbols(symbol)
+        self._shape = QtGui.QTransform.fromScale(self.size, self.size).map(self._shape)
+        # recreate the pixmap if the path changed
+        self._makePixmap()
 
-    def _setPixmap(self):
+    def boundingRect(self):
+        return self.shape().boundingRect()
+
+    def shape(self):
+        if not self.pxMode:
+            return self._shape
+        else:
+            return QtGui.QGraphicsPixmapItem.shape(self)
+
+    def paintShape(self, painter):
+        """
+        Paints the QPainterPath so that it fits into shape() including its
+        pen width.
+        Do not overload paint(), it is supposed to paint the pixmap if set.
+        """
+        painter.save()
+        painter.setPen(self._pen)
+        painter.setBrush(self._brush)
+        # half of the pen stroke width on both sides required
+        offset = max(self._pen.width(), 1)
+        wscale, hscale = (1-offset/self._shape.boundingRect().width(),
+                          1-offset/self._shape.boundingRect().height())
+        painter.scale(wscale, hscale)
+        painter.drawPath(self._shape)
+        painter.restore()
+
+    def _makePixmap(self):
         if not self.pxMode:
             return
-        spotImage = QtGui.QImage(self.size+2, self.size+2,
+        spotImage = QtGui.QImage(self._shape.boundingRect().size().toSize(),
                                  QtGui.QImage.Format_ARGB32_Premultiplied)
         spotImage.fill(0)
         p = QtGui.QPainter(spotImage)
         p.setRenderHint(p.Antialiasing)
-        p.translate(self.size*0.5+1, self.size*0.5+1)
-        p.scale(self.size, self.size)
-        self.paint(p)
+        p.translate(-self.pos())
+        self.paintShape(p)
         p.end()
-        self._pixmap = QtGui.QPixmap(spotImage)
+        self.setPixmap(QtGui.QPixmap(spotImage))
 
-    def _setPath(self, symbol):
-        self._path = self.symbols(symbol)
-        # recreate the pixmap if the path changed
-        self._setPixmap()
+    def mapToScene(self, shape):
+        """
+        The pixmap item is scale invariant, translates only.
+        Related to picking and QGraphicsScene.items(pos).
+        """
+        mappedShape = QtGui.QGraphicsPixmapItem.mapToScene(self, shape)
+        offset = (mappedShape.boundingRect().center() -
+                  shape.boundingRect().center())
+        return shape.translated(offset)
+
+    def mouseClickEvent(self, ev):
+        print "hyea4", ev.time()
 
 class SpotItem(GraphicsObject):
     """
@@ -709,13 +727,12 @@ class SpotItem(GraphicsObject):
         self.index = index
         
         # SpotPixmap stores all drawing-related data
-        size = self.spotPixmap.size
         if self.spotPixmap.pxMode:
             self.setFlags(self.flags() | self.ItemIgnoresTransformations | self.ItemHasNoContents)
-            self.pi = QtGui.QGraphicsPixmapItem(self.spotPixmap.pixmap, self)
-            self.pi.setPos(-0.5*size, -0.5*size)
-        else:
-            self.scale(size, size)
+            self.spotPixmap.setParentItem(self)
+
+    def mouseClickEvent(self, ev):
+        print "hyea2", ev.time()
 
     # for compatibility, forwarded to SpotPixmap
     @property
@@ -749,14 +766,14 @@ class SpotItem(GraphicsObject):
         self.update()
         
     def boundingRect(self):
-        return self.spotPixmap.path.boundingRect()
-        
+        return self.shape().boundingRect()
+
     def shape(self):
-        return self.spotPixmap.path
+        return self.spotPixmap.shape()
         
     def paint(self, p, *opts):
-        self.spotPixmap.paint(p, *opts)
-        
+        self.spotPixmap.paintShape(p)
+
     def setToolTip(self, text):
         if self.spotPixmap.pxMode:
             self.spotPixmap.setToolTip(text)
