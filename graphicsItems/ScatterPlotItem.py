@@ -167,7 +167,8 @@ class ScatterPlotItem(GraphicsObject):
         
         
         ## Set any extra parameters provided in keyword arguments
-        for k in ['pxMode', 'identical', 'pen', 'brush', 'symbol', 'size']:
+        for k in ['pxMode', 'identical', 'pen', 'brush', 'symbol', 'size',
+                  'toolTips']:
             if k in kargs:
                 setMethod = getattr(self, 'set' + k[0].upper() + k[1:])
                 setMethod(kargs[k])
@@ -301,6 +302,10 @@ class ScatterPlotItem(GraphicsObject):
         
     def setPxMode(self, mode):
         self.opts['pxMode'] = mode
+        self.updateSpots()
+
+    def setToolTips(self, toolTips):
+        self.opts['toolTips'] = toolTips
         self.updateSpots()
         
     def updateSpots(self):
@@ -474,6 +479,9 @@ class ScatterPlotItem(GraphicsObject):
         item = SpotItem(spotPixmap, data, index=index)
         item.setParentItem(self)
         item.setPos(pos)
+        tooltip = self.opts.get('toolTips', None)
+        if tooltip is not None:
+            item.setToolTip(tooltip.arg(pos.x()).arg(pos.y()))
         return item
         
     def boundingRect(self):
@@ -749,3 +757,7 @@ class SpotItem(GraphicsObject):
     def paint(self, p, *opts):
         self.spotPixmap.paint(p, *opts)
         
+    def setToolTip(self, text):
+        if self.spotPixmap.pxMode:
+            self.spotPixmap.setToolTip(text)
+        GraphicsObject.setToolTip(self, text)
