@@ -608,6 +608,19 @@ class PixmapSpotItem(SpotItem, QtGui.QGraphicsPixmapItem):
             pixmap = makeSymbolPixmap(size=self.size(), pen=self.pen(), brush=self.brush(), symbol=self.symbol())
         self.setPixmap(pixmap)
 
+    def mapToScene(self, shape):
+        """
+        The pixmap item is scale invariant, translates only.
+        Related to picking and QGraphicsScene.items(pos).
+        For large asymmetric scaling factors (e.g. 1:1e5) the
+        ScatterPlotItem.boundingRect() used for picking in QGraphicsScene.items()
+        vanishes. This reimplementation ensures that scale invariant SpotItems
+        are still pickable in this case.
+        """
+        mappedShape = QtGui.QGraphicsPixmapItem.mapToScene(self, shape)
+        offset = (mappedShape.boundingRect().center() -
+                  shape.boundingRect().center())
+        return shape.translated(offset)
 
 class PathSpotItem(SpotItem, QtGui.QGraphicsPathItem):
     def __init__(self, data, plot):
