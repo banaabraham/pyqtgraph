@@ -32,22 +32,36 @@ for k, c in coords.iteritems():
         Symbols[k].lineTo(x, y)
     Symbols[k].closeSubpath()
 
+# shape() and boundingRect() is used for picking, therefore it should provide
+# the path of the actual item, i.e. the item geometry provided by the user.
+# QGraphicsPixmapItem determines it from the pixmap (see shapeMode) or we
+# provide it by overriding shape().
+
+def makeSymbolPath(size, pen, brush, symbol):
+    """Scales the symbol path to contain full pen width within given size."""
+    shape = Symbols[symbol]
+    shape = QtGui.QTransform.fromScale(size, size).map(shape)
+    penOffset = pen.width()
+    wscale, hscale = (1.-penOffset/shape.boundingRect().width(),
+                      1.-penOffset/shape.boundingRect().height())
+    shape = QtGui.QTransform.fromScale(wscale, hscale).map(shape)
+    return shape
 
 def makeSymbolPixmap(size, pen, brush, symbol):
     ## Render a spot with the given parameters to a pixmap
-    image = QtGui.QImage(size+2, size+2, QtGui.QImage.Format_ARGB32_Premultiplied)
+    # the pixmap should have the given size (regarding picking)
+    image = QtGui.QImage(size, size, QtGui.QImage.Format_ARGB32_Premultiplied)
     image.fill(0)
     p = QtGui.QPainter(image)
     p.setRenderHint(p.Antialiasing)
-    p.translate(size*0.5+1, size*0.5+1)
-    p.scale(size, size)
+    p.translate(size*0.5, size*0.5) # QGraphicsPixmapItem.offset
+    if pen.width() == 0.0: # cosmetic pen
+        pen.setWidth(1.0)
     p.setPen(pen)
     p.setBrush(brush)
-    p.drawPath(Symbols[symbol])
+    p.drawPath(makeSymbolPath(size, pen, brush, symbol))
     p.end()
     return QtGui.QPixmap(image)
-
-
 
 class ScatterPlotItem(GraphicsObject):
     """
@@ -573,10 +587,12 @@ class PixmapSpotItem(SpotItem, QtGui.QGraphicsPixmapItem):
         QtGui.QGraphicsPixmapItem.__init__(self)
         self.setFlags(self.flags() | self.ItemIgnoresTransformations)
         SpotItem.__init__(self, data, plot)
+        # for a transparent brush, picking works only on the pen in default shape mode
+        self.setShapeMode(self.BoundingRectShape)
     
     def setPixmap(self, pixmap):
         QtGui.QGraphicsPixmapItem.setPixmap(self, pixmap)
-        self.setOffset(-pixmap.width()/2.+0.5, -pixmap.height()/2.)
+        self.setOffset(-pixmap.width()*.5, -pixmap.height()*.5)
     
     def updateItem(self):
         symbolOpts = (self._data['pen'], self._data['brush'], self._data['size'], self._data['symbol'])
@@ -595,9 +611,7 @@ class PathSpotItem(SpotItem, QtGui.QGraphicsPathItem):
         SpotItem.__init__(self, data, plot)
 
     def updateItem(self):
-        QtGui.QGraphicsPathItem.setPath(self, Symbols[self.symbol()])
+        QtGui.QGraphicsPathItem.setPath(self, makeSymbolPath(
+                self.size(), self.pen(), self.brush(), self.symbol()))
         QtGui.QGraphicsPathItem.setPen(self, self.pen())
         QtGui.QGraphicsPathItem.setBrush(self, self.brush())
-        size = self.size()
-        self.resetTransform()
-        self.scale(size, size)
