@@ -443,7 +443,11 @@ class ScatterPlotItem(GraphicsObject):
         if ymn is None or ymx is None:
             ymn = 0
             ymx = 0
-        return QtCore.QRectF(xmn, ymn, xmx-xmn, ymx-ymn)
+        # the bounding rect includes the spot geometries completely
+        br = QtCore.QRectF(xmn, ymn, xmx-xmn, ymx-ymn)
+        delta = self.opts['size']*.5
+        br.adjust(-delta, -delta, delta, delta)
+        return br
         
     def points(self):
         return self.data['item']
