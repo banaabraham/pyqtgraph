@@ -13,27 +13,27 @@ from pyqtgraph.ptime import time
 app = QtGui.QApplication([])
 #mw = QtGui.QMainWindow()
 #mw.resize(800,800)
+from ScatterPlotSpeedTestTemplate import Ui_Form
 
-p = pg.plot()
+win = QtGui.QWidget()
+ui = Ui_Form()
+ui.setupUi(win)
+win.show()
+
+p = ui.plot
 #p.setRange(QtCore.QRectF(0, -10, 5000, 20))
 p.setRange(QtCore.QRectF(-5, -5, 10, 10))
 #p.enableAutoRange()
 p.setLabel('bottom', 'Index', units='B')
 
-#curve.setFillBrush((0, 0, 100, 100))
-#curve.setFillLevel(0)
-
-#lr = pg.LinearRegionItem([100, 4900])
-#p.addItem(lr)
-
-data = np.random.normal(size=(50,5000))
+data = np.random.normal(size=(50,500), scale=100)
 ptr = 0
 lastTime = time()
 fps = [] # remember fps for some statistics afterwards
 def update():
     global curve, data, ptr, p, lastTime, fps
     p.clear()
-    curve = pg.ScatterPlotItem(x=data[ptr%10], y=data[(ptr+1)%10], pen='w', brush='b', size=10, pxMode=True, identical=True)
+    curve = pg.ScatterPlotItem(x=data[ptr%10], y=data[(ptr+1)%10], pen='w', brush='b', size=10, pxMode=ui.pixelModeCheck.isChecked())
     p.addItem(curve)
     ptr += 1
     now = time()
