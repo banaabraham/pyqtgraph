@@ -452,7 +452,7 @@ class ScatterPlotItem(GraphicsObject):
             ymx = 0
         # the bounding rect includes the spot geometries completely
         br = QtCore.QRectF(xmn, ymn, xmx-xmn, ymx-ymn)
-        if self.opts['pxMode']:
+        if self.opts['pxMode'] and len(self.data) > 0:
                 # increase scatterplot bounding rect by scale invariant
                 # spot item bounding rect size at the boundary
                 size = self.mapFromScene(self.data[0]['item']
