@@ -233,7 +233,7 @@ class ScatterPlotItem(GraphicsObject):
             self.setPxMode(kargs['pxMode'], update=False)
             
         ## Set any extra parameters provided in keyword arguments
-        for k in ['pen', 'brush', 'symbol', 'size']:
+        for k in ['pen', 'brush', 'symbol', 'size', 'toolTips']:
             if k in kargs:
                 setMethod = getattr(self, 'set' + k[0].upper() + k[1:])
                 setMethod(kargs[k], update=False, dataSet=newData)
@@ -355,7 +355,14 @@ class ScatterPlotItem(GraphicsObject):
         self.clearItems()
         if update:
             self.generateSpotItems()
-        
+
+    def setToolTips(self, toolTips, **kargs):
+        update = kargs.pop('update', True)
+        dataSet = kargs.pop('dataSet', self.data)
+        self.opts['toolTips'] = toolTips
+        if update:
+            self.updateSpots(dataSet)
+
     def updateSpots(self, dataSet=None):
         if dataSet is None:
             dataSet = self.data
@@ -511,6 +518,10 @@ class SpotItem(GraphicsItem):
         #self._viewWidget = None
         self.setParentItem(plot)
         self.setPos(QtCore.QPointF(data['x'], data['y']))
+        # set individual tooltip if provided
+        tooltip = self._plot.opts.get('toolTips', None)
+        if tooltip is not None:
+            self.setToolTip(tooltip.arg(self.pos().x()).arg(self.pos().y()))
         self.updateItem()
     
     def data(self):
