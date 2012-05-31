@@ -1,3 +1,8 @@
+PyQtGraph with modifications for the cutesnake module by Ingo Breßler:
+http://sasfit.hg.sourceforge.net/hgweb/sasfit/cutesnake/
+
+### original readme:
+
 PyQtGraph - A pure-Python graphics library for PyQt/PySide
 Copyright 2011 Luke Campagnola, University of North Carolina at Chapel Hill
 http://http://luke.campagnola.me/code/pyqtgraph
