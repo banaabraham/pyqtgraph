@@ -21,7 +21,8 @@ class GridItem(UIGraphicsItem):
         self.picture = None
         
         
-    def viewChangedEvent(self):
+    def viewRangeChanged(self):
+        UIGraphicsItem.viewRangeChanged(self)
         self.picture = None
         #UIGraphicsItem.viewRangeChanged(self)
         #self.update()
