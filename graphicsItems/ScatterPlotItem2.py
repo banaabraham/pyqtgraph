@@ -32,23 +32,36 @@ for k, c in coords.items():
         Symbols[k].lineTo(x, y)
     Symbols[k].closeSubpath()
 
+# shape() and boundingRect() is used for picking, therefore it should provide
+# the path of the actual item, i.e. the item geometry provided by the user.
+# QGraphicsPixmapItem determines it from the pixmap (see shapeMode) or we
+# provide it by overriding shape().
+
+def makeSymbolPath(size, pen, brush, symbol):
+    """Scales the symbol path to contain full pen width within given size."""
+    shape = Symbols[symbol]
+    shape = QtGui.QTransform.fromScale(size, size).map(shape)
+    penOffset = pen.width()
+    wscale, hscale = (1.-penOffset/shape.boundingRect().width(),
+                      1.-penOffset/shape.boundingRect().height())
+    shape = QtGui.QTransform.fromScale(wscale, hscale).map(shape)
+    return shape
 
 def makeSymbolPixmap(size, pen, brush, symbol):
     ## Render a spot with the given parameters to a pixmap
-    penPxWidth = max(np.ceil(pen.width()), 1)
-    image = QtGui.QImage(size+penPxWidth, size+penPxWidth, QtGui.QImage.Format_ARGB32_Premultiplied)
+    # the pixmap should have the given size (regarding picking)
+    image = QtGui.QImage(size, size, QtGui.QImage.Format_ARGB32_Premultiplied)
     image.fill(0)
     p = QtGui.QPainter(image)
     p.setRenderHint(p.Antialiasing)
-    p.translate(image.width()*0.5, image.height()*0.5)
-    p.scale(size, size)
+    p.translate(size*0.5, size*0.5) # QGraphicsPixmapItem.offset
+    if pen.width() == 0.0: # cosmetic pen
+        pen.setWidth(1.0)
     p.setPen(pen)
     p.setBrush(brush)
-    p.drawPath(Symbols[symbol])
+    p.drawPath(makeSymbolPath(size, pen, brush, symbol))
     p.end()
     return QtGui.QPixmap(image)
-
-
 
 class ScatterPlotItem(GraphicsObject):
     """
@@ -80,16 +93,19 @@ class ScatterPlotItem(GraphicsObject):
         GraphicsObject.__init__(self)
         self.setFlag(self.ItemHasNoContents, True)
         self.data = np.empty(0, dtype=[('x', float), ('y', float), ('size', float), ('symbol', 'S1'), ('pen', object), ('brush', object), ('item', object), ('data', object)])
-        self.bounds = [None, None]  ## caches data bounds
-        self._maxSpotWidth = 0      ## maximum size of the scale-variant portion of all spots
-        self._maxSpotPxWidth = 0    ## maximum size of the scale-invariant portion of all spots
-        self._spotPixmap = None
+        #self.spots = []
+        #self.fragments = None
+        self.bounds = [None, None]
         self.opts = {'pxMode': True}
+        #self.spotsValid = False
+        #self.itemsValid = False
+        self._spotPixmap = None
         
         self.setPen(200,200,200, update=False)
         self.setBrush(100,100,150, update=False)
         self.setSymbol('o', update=False)
         self.setSize(7, update=False)
+        #self.setIdentical(False, update=False)
         prof.mark('1')
         self.setData(*args, **kargs)
         prof.mark('setData')
@@ -217,7 +233,7 @@ class ScatterPlotItem(GraphicsObject):
             self.setPxMode(kargs['pxMode'], update=False)
             
         ## Set any extra parameters provided in keyword arguments
-        for k in ['pen', 'brush', 'symbol', 'size']:
+        for k in ['pen', 'brush', 'symbol', 'size', 'toolTips']:
             if k in kargs:
                 setMethod = getattr(self, 'set' + k[0].upper() + k[1:])
                 setMethod(kargs[k], update=False, dataSet=newData)
@@ -226,7 +242,6 @@ class ScatterPlotItem(GraphicsObject):
             self.setPointData(kargs['data'], dataSet=newData)
         
         #self.updateSpots()
-        self.bounds = [None, None]
         self.generateSpotItems()
         self.sigPlotChanged.emit(self)
         
@@ -340,35 +355,20 @@ class ScatterPlotItem(GraphicsObject):
         self.clearItems()
         if update:
             self.generateSpotItems()
-        
+
+    def setToolTips(self, toolTips, **kargs):
+        update = kargs.pop('update', True)
+        dataSet = kargs.pop('dataSet', self.data)
+        self.opts['toolTips'] = toolTips
+        if update:
+            self.updateSpots(dataSet)
+
     def updateSpots(self, dataSet=None):
         if dataSet is None:
             dataSet = self.data
-        self._maxSpotWidth = 0
-        self._maxSpotPxWidth = 0
         for spot in dataSet['item']:
             spot.updateItem()
-        self.measureSpotSizes(dataSet)
-
-    def measureSpotSizes(self, dataSet):
-        for spot in dataSet['item']:
-            ## keep track of the maximum spot size and pixel size
-            width = 0
-            pxWidth = 0
-            pen = spot.pen()
-            if self.opts['pxMode']:
-                pxWidth = spot.size() + pen.width()
-            else:
-                width = spot.size()
-                if pen.isCosmetic():
-                    pxWidth += pen.width()
-                else:
-                    width += pen.width()
-            self._maxSpotWidth = max(self._maxSpotWidth, width)
-            self._maxSpotPxWidth = max(self._maxSpotPxWidth, pxWidth)
-        self.bounds = [None, None]
-    
-    
+        
     def clear(self):
         """Remove all spots from the scatter plot"""
         self.clearItems()
@@ -389,7 +389,6 @@ class ScatterPlotItem(GraphicsObject):
         if frac >= 1.0 and self.bounds[ax] is not None:
             return self.bounds[ax]
         
-        self.prepareGeometryChange()
         if self.data is None or len(self.data) == 0:
             return (None, None)
         
@@ -406,16 +405,14 @@ class ScatterPlotItem(GraphicsObject):
             d2 = d2[mask]
             
         if frac >= 1.0:
-            ## increase size of bounds based on spot size and pen width
-            px = self.pixelLength(Point(1, 0) if ax == 0 else Point(0, 1))  ## determine length of pixel along this axis
-            if px is None:
-                px = 0
             minIndex = np.argmin(d)
             maxIndex = np.argmax(d)
             minVal = d[minIndex]
             maxVal = d[maxIndex]
-            spotSize = 0.5 * (self._maxSpotWidth + px * self._maxSpotPxWidth)
-            self.bounds[ax] = (minVal-spotSize, maxVal+spotSize)
+            if not self.opts['pxMode']:
+                minVal -= self.data[minIndex]['size']
+                maxVal += self.data[maxIndex]['size']
+            self.bounds[ax] = (minVal, maxVal)
             return self.bounds[ax]
         elif frac <= 0.0:
             raise Exception("Value for parameter 'frac' must be > 0. (got %s)" % str(frac))
@@ -436,7 +433,6 @@ class ScatterPlotItem(GraphicsObject):
             for rec in self.data:
                 if rec['item'] is None:
                     rec['item'] = PathSpotItem(rec, self)
-        self.measureSpotSizes(self.data)
         self.sigPlotChanged.emit(self)
 
     def defaultSpotPixmap(self):
@@ -454,18 +450,16 @@ class ScatterPlotItem(GraphicsObject):
         if ymn is None or ymx is None:
             ymn = 0
             ymx = 0
-        return QtCore.QRectF(xmn, ymn, xmx-xmn, ymx-ymn)
-
-    def viewRangeChanged(self):
-        GraphicsObject.viewRangeChanged(self)
-        self.bounds = [None, None]
-        
-    def paint(self, p, *args):
-        ## NOTE: self.paint is disabled by this line in __init__:
-        ## self.setFlag(self.ItemHasNoContents, True)
-        p.setPen(fn.mkPen('r'))
-        p.drawRect(self.boundingRect())
-
+        # the bounding rect includes the spot geometries completely
+        br = QtCore.QRectF(xmn, ymn, xmx-xmn, ymx-ymn)
+        if self.opts['pxMode'] and len(self.data) > 0:
+                # increase scatterplot bounding rect by scale invariant
+                # spot item bounding rect size at the boundary
+                size = self.mapFromScene(self.data[0]['item']
+                                .boundingRect()).boundingRect()
+                br.adjust(-size.width()*.5, -size.height()*.5,
+                           size.width()*.5,  size.height()*.5)
+        return br
         
     def points(self):
         return self.data['item']
@@ -524,6 +518,10 @@ class SpotItem(GraphicsItem):
         #self._viewWidget = None
         self.setParentItem(plot)
         self.setPos(QtCore.QPointF(data['x'], data['y']))
+        # set individual tooltip if provided
+        tooltip = self._plot.opts.get('toolTips', None)
+        if tooltip is not None:
+            self.setToolTip(tooltip.arg(self.pos().x()).arg(self.pos().y()))
         self.updateItem()
     
     def data(self):
@@ -609,10 +607,12 @@ class PixmapSpotItem(SpotItem, QtGui.QGraphicsPixmapItem):
         QtGui.QGraphicsPixmapItem.__init__(self)
         self.setFlags(self.flags() | self.ItemIgnoresTransformations)
         SpotItem.__init__(self, data, plot)
+        # for a transparent brush, picking works only on the pen in default shape mode
+        self.setShapeMode(self.BoundingRectShape)
     
     def setPixmap(self, pixmap):
         QtGui.QGraphicsPixmapItem.setPixmap(self, pixmap)
-        self.setOffset(-pixmap.width()/2.+0.5, -pixmap.height()/2.)
+        self.setOffset(-pixmap.width()*.5, -pixmap.height()*.5)
     
     def updateItem(self):
         symbolOpts = (self._data['pen'], self._data['brush'], self._data['size'], self._data['symbol'])
@@ -624,6 +624,19 @@ class PixmapSpotItem(SpotItem, QtGui.QGraphicsPixmapItem):
             pixmap = makeSymbolPixmap(size=self.size(), pen=self.pen(), brush=self.brush(), symbol=self.symbol())
         self.setPixmap(pixmap)
 
+    def mapToScene(self, shape):
+        """
+        The pixmap item is scale invariant, translates only.
+        Related to picking and QGraphicsScene.items(pos).
+        For large asymmetric scaling factors (e.g. 1:1e5) the
+        ScatterPlotItem.boundingRect() used for picking in QGraphicsScene.items()
+        vanishes. This reimplementation ensures that scale invariant SpotItems
+        are still pickable in this case.
+        """
+        mappedShape = QtGui.QGraphicsPixmapItem.mapToScene(self, shape)
+        offset = (mappedShape.boundingRect().center() -
+                  shape.boundingRect().center())
+        return shape.translated(offset)
 
 class PathSpotItem(SpotItem, QtGui.QGraphicsPathItem):
     def __init__(self, data, plot):
@@ -631,9 +644,7 @@ class PathSpotItem(SpotItem, QtGui.QGraphicsPathItem):
         SpotItem.__init__(self, data, plot)
 
     def updateItem(self):
-        QtGui.QGraphicsPathItem.setPath(self, Symbols[self.symbol()])
+        QtGui.QGraphicsPathItem.setPath(self, makeSymbolPath(
+                self.size(), self.pen(), self.brush(), self.symbol()))
         QtGui.QGraphicsPathItem.setPen(self, self.pen())
         QtGui.QGraphicsPathItem.setBrush(self, self.brush())
-        size = self.size()
-        self.resetTransform()
-        self.scale(size, size)
