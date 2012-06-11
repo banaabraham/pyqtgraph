@@ -26,6 +26,11 @@ class ErrorBarPlotItem(ScatterPlotItem):
         self.measureSpotSizes(self.data)
         self.sigPlotChanged.emit(self)
 
+    def measureSpotSizes(self, *args):
+        """Fixes dataBounds() in this case"""
+        ScatterPlotItem.measureSpotSizes(self, *args)
+        self._maxSpotWidth, self._maxSpotPxWidth = 0, 0
+
 class BarSpotItem(PathSpotItem):
     """Scales in y direction only"""
     def __init__(self, *args, **kwargs):
