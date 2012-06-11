@@ -264,8 +264,11 @@ class PlotDataItem(GraphicsObject):
                     x = np.array([d.get('x',None) for d in data])
                 if 'y' in data[0]:
                     y = np.array([d.get('y',None) for d in data])
+                if 'pos' in data[0]:
+                    x = np.array([d['pos'][0] for d in data])
+                    y = np.array([d['pos'][1] for d in data])
                 for k in ['data', 'symbolSize', 'symbolPen', 'symbolBrush', 'symbolShape']:
-                    kargs[k] = [d.get(k, None) for d in data]
+                    kargs[k] = [d.get(k, kargs.get(k, None)) for d in data]
             elif dt == 'MetaArray':
                 y = data.view(np.ndarray)
                 x = data.xvals(0).view(np.ndarray)
@@ -502,7 +505,7 @@ def dataType(obj):
             else:
                 raise Exception('array shape must be (N,) or (N,2); got %s instead' % str(obj.shape))
         elif isinstance(first, dict):
-            return 'listOfDict'
+            return 'listOfDicts'
         else:
             return 'listOfValues'
     elif isinstance(obj, dict):
