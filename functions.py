@@ -24,13 +24,18 @@ SI_PREFIXES_ASCII = 'yzafpnum kMGTPEZY'
 
 from .Qt import QtGui, QtCore
 import numpy as np
-import scipy.ndimage
 import decimal, re
+
 try:
-    import scipy.weave
-    USE_WEAVE = True
-except:
-    USE_WEAVE = False
+    import scipy.ndimage
+    HAVE_SCIPY = True
+    try:
+        import scipy.weave
+        USE_WEAVE = True
+    except:
+        USE_WEAVE = False
+except ImportError:
+    HAVE_SCIPY = False
 
 from . import debug
 
@@ -111,7 +116,7 @@ def siEval(s):
     """
     
     s = asUnicode(s)
-    m = re.match(r'(-?((\d+(\.\d*)?)|(\.\d+))([eE]-?\d+)?)\s*([u' + SI_PREFIXES + r']?)$', s)
+    m = re.match(r'(-?((\d+(\.\d*)?)|(\.\d+))([eE]-?\d+)?)\s*([u' + SI_PREFIXES + r']?).*$', s)
     if m is None:
         raise Exception("Can't convert string '%s' to number." % s)
     v = float(m.groups()[0])
@@ -401,7 +406,9 @@ def affineSlice(data, shape, origin, vectors, axes, order=1, returnCoords=False,
         affineSlice(data, shape=(20,20), origin=(40,0,0), vectors=((-1, 1, 0), (-1, 0, 1)), axes=(1,2,3))
     
     """
-    
+    if not HAVE_SCIPY:
+        raise Exception("This function requires the scipy library, but it does not appear to be importable.")
+
     # sanity check
     if len(shape) != len(vectors):
         raise Exception("shape and vectors must have same length.")
@@ -461,14 +468,82 @@ def affineSlice(data, shape, origin, vectors, axes, order=1, returnCoords=False,
 def transformToArray(tr):
     """
     Given a QTransform, return a 3x3 numpy array.
-    """
-    return np.array([[tr.m11(), tr.m12(), tr.m13()],[tr.m21(), tr.m22(), tr.m23()],[tr.m31(), tr.m32(), tr.m33()]])
+    Given a QMatrix4x4, return a 4x4 numpy array.
+    
+    Example: map an array of x,y coordinates through a transform::
+    
+        ## coordinates to map are (1,5), (2,6), (3,7), and (4,8)
+        coords = np.array([[1,2,3,4], [5,6,7,8], [1,1,1,1]])  # the extra '1' coordinate is needed for translation to work
         
+        ## Make an example transform
+        tr = QtGui.QTransform()
+        tr.translate(3,4)
+        tr.scale(2, 0.1)
+        
+        ## convert to array
+        m = pg.transformToArray()[:2]  # ignore the perspective portion of the transformation
+        
+        ## map coordinates through transform
+        mapped = np.dot(m, coords)
+    """
+    #return np.array([[tr.m11(), tr.m12(), tr.m13()],[tr.m21(), tr.m22(), tr.m23()],[tr.m31(), tr.m32(), tr.m33()]])
+    ## The order of elements given by the method names m11..m33 is misleading--
+    ## It is most common for x,y translation to occupy the positions 1,3 and 2,3 in
+    ## a transformation matrix. However, with QTransform these values appear at m31 and m32.
+    ## So the correct interpretation is transposed:
+    if isinstance(tr, QtGui.QTransform):
+        return np.array([[tr.m11(), tr.m21(), tr.m31()], [tr.m12(), tr.m22(), tr.m32()], [tr.m13(), tr.m23(), tr.m33()]])
+    elif isinstance(tr, QtGui.QMatrix4x4):
+        return np.array(tr.copyDataTo()).reshape(4,4)
+    else:
+        raise Exception("Transform argument must be either QTransform or QMatrix4x4.")
+
+def transformCoordinates(tr, coords):
+    """
+    Map a set of 2D or 3D coordinates through a QTransform or QMatrix4x4.
+    The shape of coords must be (2,...) or (3,...)
+    The mapping will _ignore_ any perspective transformations.
+    """
+    nd = coords.shape[0]
+    m = transformToArray(tr)    
+    m = m[:m.shape[0]-1]  # remove perspective
+    
+    ## If coords are 3D and tr is 2D, assume no change for Z axis
+    if m.shape == (2,3) and nd == 3:
+        m2 = np.zeros((3,4))
+        m2[:2, :2] = m[:2,:2]
+        m2[:2, 3] = m[:2,2]
+        m2[2,2] = 1
+        m = m2
+    
+    ## if coords are 2D and tr is 3D, ignore Z axis
+    if m.shape == (3,4) and nd == 2:
+        m2 = np.empty((2,3))
+        m2[:,:2] = m[:2,:2]
+        m2[:,2] = m[:2,3]
+        m = m2
+    
+    ## reshape tr and coords to prepare for multiplication
+    m = m.reshape(m.shape + (1,)*(coords.ndim-1))
+    coords = coords[np.newaxis, ...]
+    
+    # separate scale/rotate and translation    
+    translate = m[:,-1]  
+    m = m[:, :-1]
+    
+    ## map coordinates and return
+    mapped = (m*coords).sum(axis=0)  ## apply scale/rotate
+    mapped += translate
+    return mapped
+    
+    
 def solve3DTransform(points1, points2):
     """
     Find a 3D transformation matrix that maps points1 onto points2
     points must be specified as a list of 4 Vectors.
     """
+    if not HAVE_SCIPY:
+        raise Exception("This function depends on the scipy library, but it does not appear to be importable.")
     A = np.array([[points1[i].x(), points1[i].y(), points1[i].z(), 1] for i in range(4)])
     B = np.array([[points2[i].x(), points2[i].y(), points2[i].z(), 1] for i in range(4)])
     
@@ -488,6 +563,8 @@ def solveBilinearTransform(points1, points2):
     
         mapped = np.dot(matrix, [x*y, x, y, 1])
     """
+    if not HAVE_SCIPY:
+        raise Exception("This function depends on the scipy library, but it does not appear to be importable.")
     ## A is 4 rows (points) x 4 columns (xy, x, y, 1)
     ## B is 4 rows (points) x 2 columns (x, y)
     A = np.array([[points1[i].x()*points1[i].y(), points1[i].x(), points1[i].y(), 1] for i in range(4)])
@@ -505,7 +582,7 @@ def solveBilinearTransform(points1, points2):
     
 
 def makeARGB(data, lut=None, levels=None, useRGBA=False): 
-    """
+    """ 
     Convert a 2D or 3D array into an ARGB array suitable for building QImages
     Will optionally do scaling and/or table lookups to determine final colors.
     
@@ -531,7 +608,7 @@ def makeARGB(data, lut=None, levels=None, useRGBA=False):
         useRGBA - If True, the data is returned in RGBA order. The default is 
                   False, which returns in BGRA order for use with QImage.
                 
-    """    
+    """
     prof = debug.Profiler('functions.makeARGB', disabled=True)
     
     ## sanity checks
@@ -1299,6 +1376,9 @@ def invertQTransform(tr):
     bugs in that method. (specifically, Qt has floating-point precision issues
     when determining whether a matrix is invertible)
     """
+    if not USE_WEAVE:
+        raise Exception("This function depends on scipy.weave library, but it does not appear to be usable.")
+    
     #return tr.inverted()[0]
     arr = np.array([[tr.m11(), tr.m12(), tr.m13()], [tr.m21(), tr.m22(), tr.m23()], [tr.m31(), tr.m32(), tr.m33()]])
     inv = scipy.linalg.inv(arr)
