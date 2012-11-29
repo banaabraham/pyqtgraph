@@ -1,8 +1,8 @@
 RemoteGraphicsView
 ==================
 
-.. autoclass:: pyqtgraph.RemoteGraphicsView
+.. autoclass:: pyqtgraph.widgets.RemoteGraphicsView.RemoteGraphicsView
     :members:
 
-    .. automethod:: pyqtgraph.RemoteGraphicsView.__init__
+    .. automethod:: pyqtgraph.widgets.RemoteGraphicsView.RemoteGraphicsView.__init__
 
