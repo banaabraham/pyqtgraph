@@ -1215,11 +1215,22 @@ class ViewBox(GraphicsWidget):
         if ViewBox is None:     ## can happen as python is shutting down
             return
         ## Called with ID and name of view (the view itself is no longer available)
-        for v in ViewBox.AllViews.iterkeys():
+        for v in ViewBox.AllViews.keys():
             if id(v) == vid:
                 ViewBox.AllViews.pop(v)
                 break
         ViewBox.NamedViews.pop(name, None)
         ViewBox.updateAllViewLists()
 
+    @staticmethod
+    def quit():
+        ## called when the application is about to exit.
+        ## this disables all callbacks, which might otherwise generate errors if invoked during exit.
+        for k in ViewBox.AllViews:
+            try:
+                k.destroyed.disconnect()
+            except RuntimeError:  ## signal is already disconnected.
+                pass
+        
+        
 from .ViewBoxMenu import ViewBoxMenu
