@@ -47,7 +47,7 @@ data = np.abs(np.fromfunction(psi, (50,50,100)))
 print("Generating isosurface..")
 verts = pg.isosurface(data, data.max()/4.)
 
-md = gl.MeshData.MeshData(vertexes=verts)
+md = gl.MeshData(vertexes=verts)
 
 colors = np.ones((md.faceCount(), 4), dtype=float)
 colors[:,3] = 0.2
