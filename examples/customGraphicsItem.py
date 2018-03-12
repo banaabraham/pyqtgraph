@@ -1,61 +1,134 @@
-"""
-Demonstrate creation of a custom graphic (a candlestick plot)
+import random
+import matplotlib.pyplot as plt
 
-"""
-import initExample ## Add path to library (just for examples; you do not need this)
-
-import pyqtgraph as pg
-from pyqtgraph import QtCore, QtGui
-
-## Create a subclass of GraphicsObject.
-## The only required methods are paint() and boundingRect() 
-## (see QGraphicsItem documentation)
-class CandlestickItem(pg.GraphicsObject):
-    def __init__(self, data):
-        pg.GraphicsObject.__init__(self)
-        self.data = data  ## data must have fields: time, open, close, min, max
-        self.generatePicture()
+class tsp(object):
     
-    def generatePicture(self):
-        ## pre-computing a QPicture object allows paint() to run much more quickly, 
-        ## rather than re-drawing the shapes every time.
-        self.picture = QtGui.QPicture()
-        p = QtGui.QPainter(self.picture)
-        p.setPen(pg.mkPen('w'))
-        w = (self.data[1][0] - self.data[0][0]) / 3.
-        for (t, open, close, min, max) in self.data:
-            p.drawLine(QtCore.QPointF(t, min), QtCore.QPointF(t, max))
-            if open > close:
-                p.setBrush(pg.mkBrush('r'))
-            else:
-                p.setBrush(pg.mkBrush('g'))
-            p.drawRect(QtCore.QRectF(t-w, open, w*2, close-open))
-        p.end()
+    def __init__(self):    
+        self.coordinates = []
+        self.start = []
+        self.mindistance = 0
+        self.best = []
+        self.hist = 0
+        self.buku = dict()
+        self.fig = 0
+        
+    def setCoordinates(self,c):
+        self.coordinates = c 
+     
     
-    def paint(self, p, *args):
-        p.drawPicture(0, 0, self.picture)
+    def setStart(self,n):
+        self.start = self.coordinates[n]
+        
+    def distance(self,a,b):
+        return ((a[0]-b[0])**2+(a[1]-b[1])**2)**0.5
     
-    def boundingRect(self):
-        ## boundingRect _must_ indicate the entire area that will be drawn on
-        ## or else we will get artifacts and possibly crashing.
-        ## (in this case, QPicture does all the work of computing the bouning rect for us)
-        return QtCore.QRectF(self.picture.boundingRect())
+    
+    """
+    calculate total traver distance
+    """
+    
+    def alldistance(self,coordinates):
+        dis = 0
+        for i in range(len(coordinates)-1):
+            dis += self.distance(coordinates[i],coordinates[i+1])
+        return dis   
+    
+    
+    """
+    a rough dynamic programming solution functuin
+    """
+            
+    def dynamic_prog(self):
+        r = random
+        exp = dict()
+        recol = []
+        self.mindistance = self.alldistance(self.coordinates)
+        self.hist = self.mindistance
+        for i in range(3):          
+            tabu = [self.start]
+            epoch = 0
+            distance = 0         
+            while True:
+                j = 0  
+                while len(tabu) != len(self.coordinates):
+                    coordinates = self.coordinates
+                    while True:
+                        tempcor = r.sample(coordinates,1)[0]
+                        if tempcor not in tabu:
+                            tabu.append(tempcor)
+                            break  
+                    
 
-data = [  ## fields are (time, open, close, min, max).
-    (1., 10, 13, 5, 15),
-    (2., 13, 17, 9, 20),
-    (3., 17, 14, 11, 23),
-    (4., 14, 15, 5, 19),
-    (5., 15, 9, 8, 22),
-    (6., 9, 15, 8, 16),
-]
-item = CandlestickItem(data)
-plt = pg.plot()
-plt.addItem(item)
-plt.setWindowTitle('pyqtgraph example: customGraphicsItem')
+                    if j==len(self.coordinates)-3:
+                        tabu.append(self.start)
+                        
+                        
+                    tb = ""
+                    for i in range(len(tabu)):
+                        tb+=str(tabu[i])
+                                       
+                    if tb in exp:
+                        distance += exp[tb]
+                    else:    
+                        distance += self.distance(tabu[j],tabu[j+1])
+                        exp[tb] = distance
+                       
+                    j+=1
+            
+                
+                epoch +=1
+                print(epoch)
+                if self.mindistance>distance or self.mindistance==distance :
+                    self.mindistance = distance
+                    self.best = tabu
+                
+                if tabu not in recol or epoch>3:    
+                    recol.append(tabu)
+                    break
+        self.buku = exp         
+    
+    """
+    function to iterate solving function
+    """    
+                                   
+    def iterate(self,n):
+        for i in range(n):
+            self.dynamic_prog()
+    
+    """
+    plot the traverse
+    """
+    def plot_coor(self,c):
+        x = []
+        y = []
+        for i in c:
+            x.append(i[0])
+            y.append(i[1])
+        x.append(self.start[0])
+        y.append(self.start[1])
+        plt.figure(self.fig)    
+        plt.plot(x,y) 
+        self.fig+=1
+           
+        
+if __name__ =="__main__":
+    sales = tsp()
+    """
+    input coordinates here
+    """
+    
+    cities = [[0,1],[10,0],[20,20],[3,10],[5,60]]
+               
+    sales.setCoordinates(cities)
+    sales.setStart(0)
+    sales.iterate(100)
+    kamus = sales.buku
+    
+    awal = sales.alldistance(cities)
+    hasil = sales.mindistance
+    tabu = sales.best
+    sales.plot_coor(cities)
+    sales.plot_coor(tabu)
 
-## Start Qt event loop unless running in interactive mode or using pyside.
-if __name__ == '__main__':
-    import sys
-    if (sys.flags.interactive != 1) or not hasattr(QtCore, 'PYQT_VERSION'):
-        QtGui.QApplication.instance().exec_()
+
+
